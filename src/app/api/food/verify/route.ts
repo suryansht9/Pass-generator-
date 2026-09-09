@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
+import {
+  syncPersistentWhitelist,
+  savePersistedParticipant,
+} from '@/lib/persistentStore';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,6 +20,9 @@ export async function POST(req: NextRequest) {
     }
 
     const normalizedPassId = foodPassId.trim().toUpperCase();
+
+    // Auto-sync persistent store to database before lookup
+    await syncPersistentWhitelist(prisma);
 
     // 1. Search database for participant with this Food Pass ID
     let whitelistRecord = await prisma.whitelistParticipant.findFirst({
@@ -85,10 +92,12 @@ export async function POST(req: NextRequest) {
 
     // 5. Mark foodReceived = TRUE and record timestamp in Whitelist database
     const now = new Date();
-    await prisma.whitelistParticipant.update({
+    const updatedRecord = await prisma.whitelistParticipant.update({
       where: { id: whitelistRecord.id },
       data: { foodReceived: true, foodReceivedAt: now },
     });
+
+    savePersistedParticipant(updatedRecord);
 
     // 6. Also mark foodReceived = TRUE in Participant table if claimed
     if (whitelistRecord.participantId) {

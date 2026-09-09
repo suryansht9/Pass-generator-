@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import { isAdminAuthenticated } from '@/lib/auth';
+import {
+  syncPersistentWhitelist,
+  savePersistedParticipant,
+} from '@/lib/persistentStore';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -20,6 +24,9 @@ export async function GET(req: NextRequest) {
         { status: 401, headers: NO_CACHE_HEADERS }
       );
     }
+
+    // Auto-sync persistent store to database before querying
+    await syncPersistentWhitelist(prisma);
 
     const { searchParams } = new URL(req.url);
     const query = searchParams.get('q')?.trim() || '';
@@ -80,6 +87,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Auto-sync before creating
+    await syncPersistentWhitelist(prisma);
+
     const body = await req.json();
 
     // Bulk Import (Array)
@@ -107,7 +117,7 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        await prisma.whitelistParticipant.create({
+        const created = await prisma.whitelistParticipant.create({
           data: {
             email: mail,
             fullName: name,
@@ -117,6 +127,9 @@ export async function POST(req: NextRequest) {
             status: 'PENDING',
           },
         });
+
+        // Persist to store file
+        savePersistedParticipant(created);
         createdCount++;
       }
 
@@ -169,6 +182,9 @@ export async function POST(req: NextRequest) {
         status: 'PENDING',
       },
     });
+
+    // Save permanently to persistent store
+    savePersistedParticipant(created);
 
     return NextResponse.json(
       { success: true, participant: created },

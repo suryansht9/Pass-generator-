@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import { isAdminAuthenticated } from '@/lib/auth';
+import { syncPersistentWhitelist } from '@/lib/persistentStore';
 import * as XLSX from 'xlsx';
 
 export const dynamic = 'force-dynamic';
@@ -11,6 +12,9 @@ export async function GET(req: NextRequest) {
     if (!isAuth) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    // Auto-sync persistent store to database before querying
+    await syncPersistentWhitelist(prisma);
 
     // Fetch latest participant records directly from database (single source of truth)
     const whitelist = await prisma.whitelistParticipant.findMany({

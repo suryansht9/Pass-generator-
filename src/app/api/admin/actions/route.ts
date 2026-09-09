@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import { isAdminAuthenticated } from '@/lib/auth';
+import { syncPersistentWhitelist } from '@/lib/persistentStore';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -20,6 +21,9 @@ export async function GET(req: NextRequest) {
         { status: 401, headers: NO_CACHE_HEADERS }
       );
     }
+
+    // Auto-sync persistent store to database before querying
+    await syncPersistentWhitelist(prisma);
 
     const { searchParams } = new URL(req.url);
     const query = searchParams.get('q')?.trim().toLowerCase() || '';

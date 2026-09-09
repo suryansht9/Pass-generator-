@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import { formatParticipantId, generateVerificationToken } from '@/lib/utils';
+import {
+  syncPersistentWhitelist,
+  savePersistedParticipant,
+} from '@/lib/persistentStore';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,6 +33,9 @@ export async function POST(req: NextRequest) {
     // PRIMARY & UNIQUE ELIGIBILITY IDENTIFIER: EMAIL ADDRESS
     const emailToMatch = email.trim().toLowerCase();
     const codeToMatch = accessCode ? accessCode.trim().toUpperCase() : null;
+
+    // Auto-sync persistent store to database before lookup
+    await syncPersistentWhitelist(prisma);
 
     // 1. STRICT EMAIL WHITELIST LOOKUP
     let whitelistRecord = await prisma.whitelistParticipant.findFirst({
@@ -101,7 +108,7 @@ export async function POST(req: NextRequest) {
     });
 
     // 4. MARK WHITELIST ENTRY AS CLAIMED
-    await prisma.whitelistParticipant.update({
+    const updatedWhitelistRecord = await prisma.whitelistParticipant.update({
       where: { id: whitelistRecord.id },
       data: {
         status: 'CLAIMED',
@@ -112,6 +119,8 @@ export async function POST(req: NextRequest) {
         teamName: teamName.trim(),
       },
     });
+
+    savePersistedParticipant(updatedWhitelistRecord);
 
     // Mark access code as USED if applicable
     if (codeToMatch) {
