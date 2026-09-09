@@ -855,6 +855,7 @@ priya.patel@example.com, Priya Patel, AU, Tech Titans"
                   <th className="py-3.5 px-4">TEAM</th>
                   <th className="py-3.5 px-4">PARTICIPANT ID</th>
                   <th className="py-3.5 px-4">CHECK-IN</th>
+                  <th className="py-3.5 px-4">FOOD PASS</th>
                   <th className="py-3.5 px-4">FOOD RECEIVED</th>
                   <th className="py-3.5 px-4">STATUS</th>
                   <th className="py-3.5 px-4 text-right">ACTIONS</th>
@@ -863,14 +864,14 @@ priya.patel@example.com, Priya Patel, AU, Tech Titans"
               <tbody className="divide-y divide-brand-border/60 text-xs">
                 {loading ? (
                   <tr>
-                    <td colSpan={9} className="py-12 text-center text-gray-400 font-mono">
+                    <td colSpan={10} className="py-12 text-center text-gray-400 font-mono">
                       <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-brand-red" />
                       Loading generated pass records...
                     </td>
                   </tr>
                 ) : participants.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="py-12 text-center text-gray-400 font-mono">
+                    <td colSpan={10} className="py-12 text-center text-gray-400 font-mono">
                       No generated passes found.
                     </td>
                   </tr>
@@ -903,6 +904,15 @@ priya.patel@example.com, Priya Patel, AU, Tech Titans"
                           <span className="text-sky-400 font-bold">✓ Checked In</span>
                         ) : (
                           <span className="text-gray-500">✕ Not Checked In</span>
+                        )}
+                      </td>
+
+                      {/* Food Pass Generated */}
+                      <td className="py-3 px-4 font-mono font-bold">
+                        {p.foodPassGenerated ? (
+                          <span className="text-emerald-400 font-bold">✓ {p.foodPassId || 'Food Pass'}</span>
+                        ) : (
+                          <span className="text-gray-500">✕ No Pass</span>
                         )}
                       </td>
 
