@@ -62,28 +62,28 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
 
-    // Check if bulk import (Array) or single creation (Object)
+    // Bulk Import (Array)
     if (Array.isArray(body.participants)) {
       const items = body.participants;
       let createdCount = 0;
       let skippedCount = 0;
 
       for (const item of items) {
-        if (!item.fullName || !item.fullName.trim()) continue;
-
-        const name = item.fullName.trim();
-        const college = (item.collegeName || 'Unknown College').trim();
-        const team = (item.teamName || 'Independent Team').trim();
-        const email = item.email ? item.email.trim().toLowerCase() : null;
+        const mail = item.email ? item.email.trim().toLowerCase() : null;
+        const name = (item.fullName || 'Selected Participant').trim();
+        const college = (item.collegeName || 'CMP College').trim();
+        const team = (item.teamName || 'Team Hack').trim();
         const accessCode = item.accessCode ? item.accessCode.trim().toUpperCase() : null;
 
-        // Check duplicate by name or email or access code
+        if (!mail && !name) continue;
+
+        // Check duplicate by email or accessCode
         const existing = await prisma.whitelistParticipant.findFirst({
           where: {
             OR: [
-              { fullName: name },
-              ...(email ? [{ email }] : []),
+              ...(mail ? [{ email: mail }] : []),
               ...(accessCode ? [{ accessCode }] : []),
+              ...(!mail && !accessCode ? [{ fullName: name }] : []),
             ],
           },
         });
@@ -95,10 +95,10 @@ export async function POST(req: NextRequest) {
 
         await prisma.whitelistParticipant.create({
           data: {
+            email: mail || undefined,
             fullName: name,
             collegeName: college,
             teamName: team,
-            email: email || undefined,
             accessCode: accessCode || undefined,
             status: 'PENDING',
           },
@@ -115,23 +115,22 @@ export async function POST(req: NextRequest) {
     }
 
     // Single Creation
-    const { fullName, collegeName, teamName, email, accessCode } = body;
+    const { email, fullName, collegeName, teamName, accessCode } = body;
 
-    if (!fullName || !fullName.trim()) {
-      return NextResponse.json({ error: 'Full name is required.' }, { status: 400 });
+    if (!email || !email.trim()) {
+      return NextResponse.json({ error: 'Email address is required for pre-registration.' }, { status: 400 });
     }
 
-    const name = fullName.trim();
-    const college = (collegeName || 'Unknown College').trim();
-    const team = (teamName || 'Independent Team').trim();
-    const mail = email ? email.trim().toLowerCase() : null;
+    const mail = email.trim().toLowerCase();
+    const name = (fullName || 'Selected Participant').trim();
+    const college = (collegeName || 'CMP College').trim();
+    const team = (teamName || 'Team Hack').trim();
     const code = accessCode ? accessCode.trim().toUpperCase() : null;
 
     const existing = await prisma.whitelistParticipant.findFirst({
       where: {
         OR: [
-          { fullName: name },
-          ...(mail ? [{ email: mail }] : []),
+          { email: mail },
           ...(code ? [{ accessCode: code }] : []),
         ],
       },
@@ -139,17 +138,17 @@ export async function POST(req: NextRequest) {
 
     if (existing) {
       return NextResponse.json(
-        { error: 'Participant is already in the pre-registered whitelist.' },
+        { error: 'This email address is already in the pre-registered whitelist.' },
         { status: 400 }
       );
     }
 
     const created = await prisma.whitelistParticipant.create({
       data: {
+        email: mail,
         fullName: name,
         collegeName: college,
         teamName: team,
-        email: mail || undefined,
         accessCode: code || undefined,
         status: 'PENDING',
       },
