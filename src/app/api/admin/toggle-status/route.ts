@@ -17,14 +17,21 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid toggle parameters' }, { status: 400 });
     }
 
+    const now = new Date();
+    const updateData: any = { [type]: value };
+
+    if (type === 'checkedIn') {
+      updateData.checkedInAt = value ? now : null;
+    } else if (type === 'foodReceived') {
+      updateData.foodReceivedAt = value ? now : null;
+    }
+
     // Update WhitelistParticipant
-    const updatedWhitelist = await prisma.whitelistParticipant.updateMany({
+    await prisma.whitelistParticipant.updateMany({
       where: {
         OR: [{ id }, { participantId: id }],
       },
-      data: {
-        [type]: value,
-      },
+      data: updateData,
     });
 
     // Update Participant table
@@ -32,9 +39,7 @@ export async function PATCH(req: NextRequest) {
       where: {
         OR: [{ id }, { participantId: id }],
       },
-      data: {
-        [type]: value,
-      },
+      data: updateData,
     });
 
     return NextResponse.json({ success: true, type, value });

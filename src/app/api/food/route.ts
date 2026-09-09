@@ -50,11 +50,13 @@ export async function POST(req: NextRequest) {
     const nextNum = count + 1;
     const foodPassId = `FOOD-2026-${String(nextNum).padStart(4, '0')}`;
 
-    // Mark foodPassGenerated = true and store foodPassId
+    const now = new Date();
+    // Mark foodPassGenerated = true and store foodPassId and timestamp
     await prisma.whitelistParticipant.update({
       where: { id: whitelistRecord.id },
       data: {
         foodPassGenerated: true,
+        foodPassGeneratedAt: now,
         foodPassId,
         fullName: fullName && fullName.trim() ? fullName.trim() : whitelistRecord.fullName,
       },
@@ -66,6 +68,7 @@ export async function POST(req: NextRequest) {
         where: { participantId: whitelistRecord.participantId },
         data: {
           foodPassGenerated: true,
+          foodPassGeneratedAt: now,
           foodPassId,
         },
       });

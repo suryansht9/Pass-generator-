@@ -14,6 +14,7 @@ export default function Navbar() {
     { href: '/register', label: 'Generate Pass' },
     { href: '/food', label: 'Check-in for Food' },
     { href: '/scanner', label: 'Verify & Scan' },
+    { href: '/admin/actions', label: 'View All Actions' },
     { href: '/admin', label: 'Admin Portal' },
   ];
 

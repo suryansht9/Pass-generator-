@@ -49,16 +49,17 @@ export async function GET(
       });
     }
 
-    // Auto-mark checkedIn = true when valid main pass QR is verified
+    // Auto-mark checkedIn = true and record checkedInAt timestamp when valid main pass QR is verified
+    const now = new Date();
     if (!participant.checkedIn) {
       await prisma.participant.update({
         where: { id: participant.id },
-        data: { checkedIn: true },
+        data: { checkedIn: true, checkedInAt: now },
       });
 
       await prisma.whitelistParticipant.updateMany({
         where: { participantId: participant.participantId },
-        data: { checkedIn: true },
+        data: { checkedIn: true, checkedInAt: now },
       });
     }
 

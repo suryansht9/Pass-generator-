@@ -8,20 +8,23 @@ generator client {
 }
 
 model Participant {
-  id                String   @id @default(uuid())
-  participantId     String   @unique
-  fullName          String
-  collegeName       String
-  teamName          String
-  photoUrl          String
-  verificationToken String   @unique
-  status            String   @default("ACTIVE") // ACTIVE, REVOKED
-  checkedIn         Boolean  @default(false)
-  foodPassGenerated Boolean  @default(false)
-  foodPassId        String?  @unique
-  foodReceived      Boolean  @default(false)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id                  String    @id @default(uuid())
+  participantId       String    @unique
+  fullName            String
+  collegeName         String
+  teamName            String
+  photoUrl            String
+  verificationToken   String    @unique
+  status              String    @default("ACTIVE") // ACTIVE, REVOKED
+  checkedIn           Boolean   @default(false)
+  checkedInAt         DateTime?
+  foodPassGenerated   Boolean   @default(false)
+  foodPassGeneratedAt DateTime?
+  foodPassId          String?   @unique
+  foodReceived        Boolean   @default(false)
+  foodReceivedAt      DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   @@index([participantId])
   @@index([status])
@@ -39,21 +42,24 @@ model AccessCode {
 }
 
 model WhitelistParticipant {
-  id                String    @id @default(uuid())
-  fullName          String
-  collegeName       String
-  teamName          String
-  email             String?   @unique
-  phone             String?
-  accessCode        String?   @unique
-  status            String    @default("PENDING") // PENDING, CLAIMED, REVOKED
-  claimedAt         DateTime?
-  participantId     String?   @unique
-  checkedIn         Boolean   @default(false)
-  foodPassGenerated Boolean   @default(false)
-  foodPassId        String?   @unique
-  foodReceived      Boolean   @default(false)
-  createdAt         DateTime  @default(now())
+  id                  String    @id @default(uuid())
+  fullName            String
+  collegeName         String
+  teamName            String
+  email               String?   @unique
+  phone               String?
+  accessCode          String?   @unique
+  status              String    @default("PENDING") // PENDING, CLAIMED, REVOKED
+  claimedAt           DateTime?
+  participantId       String?   @unique
+  checkedIn           Boolean   @default(false)
+  checkedInAt         DateTime?
+  foodPassGenerated   Boolean   @default(false)
+  foodPassGeneratedAt DateTime?
+  foodPassId          String?   @unique
+  foodReceived        Boolean   @default(false)
+  foodReceivedAt      DateTime?
+  createdAt           DateTime  @default(now())
 
   @@index([fullName])
   @@index([accessCode])

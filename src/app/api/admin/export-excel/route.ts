@@ -17,7 +17,15 @@ export async function GET(req: NextRequest) {
       orderBy: { createdAt: 'desc' },
     });
 
-    // Structure rows for Excel sheet
+    const formatDate = (dateVal?: Date | null) => {
+      if (!dateVal) return '—';
+      return new Date(dateVal).toLocaleString('en-IN', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      });
+    };
+
+    // Structure rows for Excel sheet with action statuses and timestamps
     const excelRows = whitelist.map((item) => {
       const isMainPassGenerated = item.status === 'CLAIMED' || Boolean(item.participantId);
       const isEntryCheckedIn = Boolean(item.checkedIn);
@@ -32,15 +40,16 @@ export async function GET(req: NextRequest) {
         'Team Name': item.teamName || '—',
         'Main Pass ID': item.participantId || '—',
         'Main Pass Generated': isMainPassGenerated ? '☑ YES' : '☐ NO',
+        'Main Pass Generated At': isMainPassGenerated ? formatDate(item.claimedAt) : '—',
         'Entry Check-in': isEntryCheckedIn ? '☑ YES' : '☐ NO',
+        'Entry Check-in At': isEntryCheckedIn ? formatDate(item.checkedInAt) : '—',
         'Food Pass ID': item.foodPassId || '—',
         'Food Pass Generated': isFoodPassGenerated ? '☑ YES' : '☐ NO',
+        'Food Pass Generated At': isFoodPassGenerated ? formatDate(item.foodPassGeneratedAt) : '—',
         'Food Received': isFoodReceived ? '☑ YES' : '☐ NO',
+        'Food Received At': isFoodReceived ? formatDate(item.foodReceivedAt) : '—',
         'Registration Status': item.status || 'PENDING',
-        'Created At': new Date(item.createdAt).toLocaleString('en-IN', {
-          dateStyle: 'medium',
-          timeStyle: 'short',
-        }),
+        'Registered At': formatDate(item.createdAt),
       };
     });
 
@@ -56,17 +65,21 @@ export async function GET(req: NextRequest) {
       { wch: 20 }, // Team Name
       { wch: 18 }, // Main Pass ID
       { wch: 22 }, // Main Pass Generated
+      { wch: 24 }, // Main Pass Generated At
       { wch: 18 }, // Entry Check-in
+      { wch: 24 }, // Entry Check-in At
       { wch: 18 }, // Food Pass ID
       { wch: 22 }, // Food Pass Generated
+      { wch: 24 }, // Food Pass Generated At
       { wch: 18 }, // Food Received
+      { wch: 24 }, // Food Received At
       { wch: 20 }, // Registration Status
-      { wch: 22 }, // Created At
+      { wch: 24 }, // Registered At
     ];
     worksheet['!cols'] = columnWidths;
 
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Hackathon Participants');
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Participant Action Log');
 
     // Generate binary buffer for native .xlsx file
     const excelBuffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });

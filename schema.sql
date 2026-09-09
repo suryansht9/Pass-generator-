@@ -12,9 +12,12 @@ CREATE TABLE IF NOT EXISTS public.participants (
   verification_token TEXT UNIQUE NOT NULL,
   status TEXT NOT NULL DEFAULT 'ACTIVE', -- 'ACTIVE' or 'REVOKED'
   checked_in BOOLEAN NOT NULL DEFAULT FALSE,
+  checked_in_at TIMESTAMP WITH TIME ZONE,
   food_pass_generated BOOLEAN NOT NULL DEFAULT FALSE,
+  food_pass_generated_at TIMESTAMP WITH TIME ZONE,
   food_pass_id TEXT UNIQUE,
   food_received BOOLEAN NOT NULL DEFAULT FALSE,
+  food_received_at TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -48,9 +51,12 @@ CREATE TABLE IF NOT EXISTS public.whitelist_participants (
   claimed_at TIMESTAMP WITH TIME ZONE,
   participant_id TEXT UNIQUE,
   checked_in BOOLEAN NOT NULL DEFAULT FALSE,
+  checked_in_at TIMESTAMP WITH TIME ZONE,
   food_pass_generated BOOLEAN NOT NULL DEFAULT FALSE,
+  food_pass_generated_at TIMESTAMP WITH TIME ZONE,
   food_pass_id TEXT UNIQUE,
   food_received BOOLEAN NOT NULL DEFAULT FALSE,
+  food_received_at TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 

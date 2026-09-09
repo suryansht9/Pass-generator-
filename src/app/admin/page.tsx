@@ -437,6 +437,15 @@ export default function AdminDashboardPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          {/* VIEW ALL ACTIONS BUTTON */}
+          <Link
+            href="/admin/actions"
+            className="p-2.5 bg-brand-red hover:bg-red-600 text-white rounded-xl font-mono text-xs font-bold flex items-center gap-1.5 transition-colors shadow-lg shadow-brand-red/20"
+          >
+            <ShieldCheck className="w-4 h-4" />
+            <span>VIEW ALL ACTIONS</span>
+          </Link>
+
           {/* VIEW DATA IN EXCEL BUTTON */}
           <button
             onClick={handleExportExcel}

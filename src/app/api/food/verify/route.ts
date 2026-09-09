@@ -83,17 +83,18 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 5. Mark foodReceived = TRUE in Whitelist database
+    // 5. Mark foodReceived = TRUE and record timestamp in Whitelist database
+    const now = new Date();
     await prisma.whitelistParticipant.update({
       where: { id: whitelistRecord.id },
-      data: { foodReceived: true },
+      data: { foodReceived: true, foodReceivedAt: now },
     });
 
     // 6. Also mark foodReceived = TRUE in Participant table if claimed
     if (whitelistRecord.participantId) {
       await prisma.participant.updateMany({
         where: { participantId: whitelistRecord.participantId },
-        data: { foodReceived: true },
+        data: { foodReceived: true, foodReceivedAt: now },
       });
     }
 
