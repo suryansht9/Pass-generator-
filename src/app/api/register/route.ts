@@ -26,22 +26,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Profile photo is required.' }, { status: 400 });
     }
 
+    // PRIMARY & UNIQUE ELIGIBILITY IDENTIFIER: EMAIL ADDRESS
     const emailToMatch = email.trim().toLowerCase();
     const codeToMatch = accessCode ? accessCode.trim().toUpperCase() : null;
 
-    // 1. PRIMARY EMAIL WHITELIST LOOKUP
+    // 1. STRICT EMAIL WHITELIST LOOKUP
     let whitelistRecord = await prisma.whitelistParticipant.findFirst({
       where: { email: emailToMatch },
     });
 
-    // Fallback lookup by access code if provided and email wasn't found directly
+    // Fallback lookup by access code if provided
     if (!whitelistRecord && codeToMatch) {
       whitelistRecord = await prisma.whitelistParticipant.findFirst({
         where: { accessCode: codeToMatch },
       });
     }
 
-    // DENY REGISTRATION IF EMAIL IS NOT PRE-REGISTERED IN WHITELIST
+    // REJECT REGISTRATION IF EMAIL IS NOT PRE-REGISTERED IN WHITELIST
     if (!whitelistRecord) {
       return NextResponse.json(
         {
@@ -90,9 +91,9 @@ export async function POST(req: NextRequest) {
     const participant = await prisma.participant.create({
       data: {
         participantId,
-        fullName: fullName.trim() || whitelistRecord.fullName,
-        collegeName: collegeName.trim() || whitelistRecord.collegeName,
-        teamName: teamName.trim() || whitelistRecord.teamName,
+        fullName: fullName.trim(),
+        collegeName: collegeName.trim(),
+        teamName: teamName.trim(),
         photoUrl,
         verificationToken,
         status: 'ACTIVE',
@@ -106,7 +107,6 @@ export async function POST(req: NextRequest) {
         status: 'CLAIMED',
         claimedAt: new Date(),
         participantId: participant.participantId,
-        // Update stored details if provided
         fullName: fullName.trim(),
         collegeName: collegeName.trim(),
         teamName: teamName.trim(),
@@ -130,10 +130,10 @@ export async function POST(req: NextRequest) {
       participantId: participant.participantId,
       fullName: participant.fullName,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Registration error:', error);
     return NextResponse.json(
-      { error: 'Registration failed due to a server error. Please try again.' },
+      { error: error?.message || 'Registration failed due to a server error. Please try again.' },
       { status: 500 }
     );
   }

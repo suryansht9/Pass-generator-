@@ -17,10 +17,10 @@ export async function GET(req: NextRequest) {
     const whereCondition = query
       ? {
           OR: [
+            { email: { contains: query } },
             { fullName: { contains: query } },
             { collegeName: { contains: query } },
             { teamName: { contains: query } },
-            { email: { contains: query } },
             { accessCode: { contains: query } },
           ],
         }
@@ -47,9 +47,9 @@ export async function GET(req: NextRequest) {
       },
       whitelist,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Fetch whitelist error:', error);
-    return NextResponse.json({ error: 'Failed to fetch whitelist' }, { status: 500 });
+    return NextResponse.json({ error: error?.message || 'Failed to fetch whitelist' }, { status: 500 });
   }
 }
 
@@ -69,23 +69,17 @@ export async function POST(req: NextRequest) {
       let skippedCount = 0;
 
       for (const item of items) {
-        const mail = item.email ? item.email.trim().toLowerCase() : null;
+        if (!item.email || !item.email.trim()) continue;
+
+        const mail = item.email.trim().toLowerCase();
         const name = (item.fullName || 'Selected Participant').trim();
         const college = (item.collegeName || 'CMP College').trim();
         const team = (item.teamName || 'Team Hack').trim();
         const accessCode = item.accessCode ? item.accessCode.trim().toUpperCase() : null;
 
-        if (!mail && !name) continue;
-
-        // Check duplicate by email or accessCode
+        // Check duplicate by primary email identifier
         const existing = await prisma.whitelistParticipant.findFirst({
-          where: {
-            OR: [
-              ...(mail ? [{ email: mail }] : []),
-              ...(accessCode ? [{ accessCode }] : []),
-              ...(!mail && !accessCode ? [{ fullName: name }] : []),
-            ],
-          },
+          where: { email: mail },
         });
 
         if (existing) {
@@ -95,7 +89,7 @@ export async function POST(req: NextRequest) {
 
         await prisma.whitelistParticipant.create({
           data: {
-            email: mail || undefined,
+            email: mail,
             fullName: name,
             collegeName: college,
             teamName: team,
@@ -114,7 +108,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Single Creation
+    // Single Whitelist Pre-Registration
     const { email, fullName, collegeName, teamName, accessCode } = body;
 
     if (!email || !email.trim()) {
@@ -127,18 +121,14 @@ export async function POST(req: NextRequest) {
     const team = (teamName || 'Team Hack').trim();
     const code = accessCode ? accessCode.trim().toUpperCase() : null;
 
+    // Primary Email Uniqueness Check
     const existing = await prisma.whitelistParticipant.findFirst({
-      where: {
-        OR: [
-          { email: mail },
-          ...(code ? [{ accessCode: code }] : []),
-        ],
-      },
+      where: { email: mail },
     });
 
     if (existing) {
       return NextResponse.json(
-        { error: 'This email address is already in the pre-registered whitelist.' },
+        { error: 'Participant with this email is already whitelisted.' },
         { status: 400 }
       );
     }
@@ -155,8 +145,11 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json({ success: true, participant: created });
-  } catch (error) {
-    console.error('Whitelist create/import error:', error);
-    return NextResponse.json({ error: 'Failed to process whitelist entry' }, { status: 500 });
+  } catch (error: any) {
+    console.error('Whitelist create error:', error);
+    return NextResponse.json(
+      { error: error?.message || 'Failed to process whitelist entry' },
+      { status: 500 }
+    );
   }
 }
