@@ -1,0 +1,53 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Participant {
+  id                String   @id @default(uuid())
+  participantId     String   @unique
+  fullName          String
+  collegeName       String
+  teamName          String
+  photoUrl          String
+  verificationToken String   @unique
+  status            String   @default("ACTIVE") // ACTIVE, REVOKED
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([participantId])
+  @@index([status])
+}
+
+model AccessCode {
+  id        String    @id @default(uuid())
+  code      String    @unique
+  status    String    @default("ACTIVE") // ACTIVE, USED, REVOKED
+  usedBy    String?
+  createdAt DateTime  @default(now())
+  usedAt    DateTime?
+
+  @@index([code])
+}
+
+model WhitelistParticipant {
+  id            String    @id @default(uuid())
+  fullName      String
+  collegeName   String
+  teamName      String
+  email         String?   @unique
+  phone         String?
+  accessCode    String?   @unique
+  status        String    @default("PENDING") // PENDING, CLAIMED, REVOKED
+  claimedAt     DateTime?
+  participantId String?   @unique
+  createdAt     DateTime  @default(now())
+
+  @@index([fullName])
+  @@index([accessCode])
+  @@index([email])
+}
