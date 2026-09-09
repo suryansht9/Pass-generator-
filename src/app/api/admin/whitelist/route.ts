@@ -3,16 +3,26 @@ import prisma from '@/lib/db';
 import { isAdminAuthenticated } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+const NO_CACHE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+  'Pragma': 'no-cache',
+  'Expires': '0',
+};
 
 export async function GET(req: NextRequest) {
   try {
     const isAuth = await isAdminAuthenticated();
     if (!isAuth) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401, headers: NO_CACHE_HEADERS }
+      );
     }
 
     const { searchParams } = new URL(req.url);
-    const query = searchParams.get('q') || '';
+    const query = searchParams.get('q')?.trim() || '';
 
     const whereCondition = query
       ? {
@@ -22,6 +32,7 @@ export async function GET(req: NextRequest) {
             { collegeName: { contains: query } },
             { teamName: { contains: query } },
             { accessCode: { contains: query } },
+            { participantId: { contains: query } },
           ],
         }
       : {};
@@ -36,20 +47,26 @@ export async function GET(req: NextRequest) {
     const claimedPasses = await prisma.whitelistParticipant.count({ where: { status: 'CLAIMED' } });
     const pendingPasses = await prisma.whitelistParticipant.count({ where: { status: 'PENDING' } });
 
-    return NextResponse.json({
-      success: true,
-      stats: {
-        totalCapacity,
-        totalPreRegistered,
-        claimedPasses,
-        pendingPasses,
-        remainingSlots: totalCapacity - totalPreRegistered,
+    return NextResponse.json(
+      {
+        success: true,
+        stats: {
+          totalCapacity,
+          totalPreRegistered,
+          claimedPasses,
+          pendingPasses,
+          remainingSlots: totalCapacity - totalPreRegistered,
+        },
+        whitelist,
       },
-      whitelist,
-    });
+      { headers: NO_CACHE_HEADERS }
+    );
   } catch (error: any) {
     console.error('Fetch whitelist error:', error);
-    return NextResponse.json({ error: error?.message || 'Failed to fetch whitelist' }, { status: 500 });
+    return NextResponse.json(
+      { error: error?.message || 'Failed to fetch whitelist' },
+      { status: 500, headers: NO_CACHE_HEADERS }
+    );
   }
 }
 
@@ -57,7 +74,10 @@ export async function POST(req: NextRequest) {
   try {
     const isAuth = await isAdminAuthenticated();
     if (!isAuth) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401, headers: NO_CACHE_HEADERS }
+      );
     }
 
     const body = await req.json();
@@ -75,7 +95,7 @@ export async function POST(req: NextRequest) {
         const name = (item.fullName || 'Selected Participant').trim();
         const college = (item.collegeName || 'CMP College').trim();
         const team = (item.teamName || 'Team Hack').trim();
-        const accessCode = item.accessCode ? item.accessCode.trim().toUpperCase() : null;
+        const accessCode = item.accessCode && item.accessCode.trim() ? item.accessCode.trim().toUpperCase() : null;
 
         // Check duplicate by primary email identifier
         const existing = await prisma.whitelistParticipant.findFirst({
@@ -100,26 +120,32 @@ export async function POST(req: NextRequest) {
         createdCount++;
       }
 
-      return NextResponse.json({
-        success: true,
-        message: `Successfully imported ${createdCount} selected participants. (${skippedCount} duplicates skipped)`,
-        createdCount,
-        skippedCount,
-      });
+      return NextResponse.json(
+        {
+          success: true,
+          message: `Successfully imported ${createdCount} selected participants. (${skippedCount} duplicates skipped)`,
+          createdCount,
+          skippedCount,
+        },
+        { headers: NO_CACHE_HEADERS }
+      );
     }
 
     // Single Whitelist Pre-Registration
     const { email, fullName, collegeName, teamName, accessCode } = body;
 
     if (!email || !email.trim()) {
-      return NextResponse.json({ error: 'Email address is required for pre-registration.' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Email address is required for pre-registration.' },
+        { status: 400, headers: NO_CACHE_HEADERS }
+      );
     }
 
     const mail = email.trim().toLowerCase();
     const name = (fullName || 'Selected Participant').trim();
     const college = (collegeName || 'CMP College').trim();
     const team = (teamName || 'Team Hack').trim();
-    const code = accessCode ? accessCode.trim().toUpperCase() : null;
+    const code = accessCode && accessCode.trim() ? accessCode.trim().toUpperCase() : null;
 
     // Primary Email Uniqueness Check
     const existing = await prisma.whitelistParticipant.findFirst({
@@ -129,7 +155,7 @@ export async function POST(req: NextRequest) {
     if (existing) {
       return NextResponse.json(
         { error: 'Participant with this email is already whitelisted.' },
-        { status: 400 }
+        { status: 400, headers: NO_CACHE_HEADERS }
       );
     }
 
@@ -144,12 +170,15 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return NextResponse.json({ success: true, participant: created });
+    return NextResponse.json(
+      { success: true, participant: created },
+      { headers: NO_CACHE_HEADERS }
+    );
   } catch (error: any) {
     console.error('Whitelist create error:', error);
     return NextResponse.json(
       { error: error?.message || 'Failed to process whitelist entry' },
-      { status: 500 }
+      { status: 500, headers: NO_CACHE_HEADERS }
     );
   }
 }

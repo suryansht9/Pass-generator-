@@ -8,7 +8,7 @@ function getDatabaseUrl(): string {
     return envUrl;
   }
 
-  if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
+  if (Boolean(process.env.VERCEL)) {
     const tmpDbPath = path.join('/tmp', 'dev.db');
     try {
       if (!fs.existsSync(tmpDbPath)) {

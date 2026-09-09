@@ -70,7 +70,10 @@ export default function AdminActionsPage() {
   const fetchActionsData = async (query = '') => {
     try {
       setIsRefreshing(true);
-      const res = await fetch(`/api/admin/actions?q=${encodeURIComponent(query)}`);
+      const res = await fetch(`/api/admin/actions?q=${encodeURIComponent(query)}&_t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
 
       if (res.status === 401) {
         router.push('/admin/login');

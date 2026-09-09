@@ -129,7 +129,10 @@ export default function AdminDashboardPage() {
   const fetchParticipants = async (query = '') => {
     try {
       setLoading(true);
-      const res = await fetch(`/api/admin/participants?q=${encodeURIComponent(query)}`);
+      const res = await fetch(`/api/admin/participants?q=${encodeURIComponent(query)}&_t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
       if (res.status === 401) {
         router.push('/admin/login');
         return;
@@ -149,7 +152,10 @@ export default function AdminDashboardPage() {
   const fetchWhitelist = async (query = '') => {
     try {
       setLoading(true);
-      const res = await fetch(`/api/admin/whitelist?q=${encodeURIComponent(query)}`);
+      const res = await fetch(`/api/admin/whitelist?q=${encodeURIComponent(query)}&_t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
       if (res.status === 401) {
         router.push('/admin/login');
         return;
@@ -180,7 +186,10 @@ export default function AdminDashboardPage() {
   // Fetch Access Codes
   const fetchAccessCodes = async () => {
     try {
-      const res = await fetch('/api/admin/access-codes');
+      const res = await fetch(`/api/admin/access-codes?_t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
       if (res.status === 401) {
         router.push('/admin/login');
         return;
@@ -232,7 +241,7 @@ export default function AdminDashboardPage() {
     try {
       const res = await fetch('/api/admin/whitelist', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
         body: JSON.stringify({
           email: singleEmail.trim().toLowerCase(),
           fullName: singleName.trim() || 'Selected Participant',
@@ -251,10 +260,16 @@ export default function AdminDashboardPage() {
         setSingleCollege('');
         setSingleTeam('');
         setSingleCode('');
-        fetchWhitelist();
+        
+        // Immediate confirmed state update + background refetch
+        if (data.participant) {
+          setWhitelist((prev) => [data.participant, ...prev.filter((p) => p.id !== data.participant.id)]);
+        }
+        await fetchWhitelist();
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Add single error:', err);
+      alert('Network error while adding participant: ' + (err?.message || 'Please try again.'));
     }
   };
 
