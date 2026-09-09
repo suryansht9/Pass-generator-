@@ -2,9 +2,8 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import { Ticket, QrCode, ShieldCheck, Sparkles, Menu, X } from 'lucide-react';
+import { Ticket, QrCode, ShieldCheck, Menu, X, Utensils } from 'lucide-react';
 
 export default function Navbar() {
   const pathname = usePathname();
@@ -13,6 +12,7 @@ export default function Navbar() {
   const navLinks = [
     { href: '/', label: 'Home' },
     { href: '/register', label: 'Generate Pass' },
+    { href: '/food', label: 'Check-in for Food' },
     { href: '/scanner', label: 'Verify & Scan' },
     { href: '/admin', label: 'Admin Portal' },
   ];
@@ -52,7 +52,7 @@ export default function Navbar() {
                 <Link
                   key={link.href}
                   href={link.href}
-                  className={`px-4 py-2 rounded-lg font-semibold tracking-wider transition-all ${
+                  className={`px-3.5 py-2 rounded-lg font-semibold tracking-wider transition-all ${
                     isActive
                       ? 'bg-brand-red text-white shadow-md shadow-brand-red/20'
                       : 'text-gray-300 hover:text-white hover:bg-white/5'

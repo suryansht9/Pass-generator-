@@ -24,7 +24,10 @@ import {
   Upload,
   UserPlus,
   Mail,
+  Utensils,
+  Download,
   Loader2,
+  XCircle,
 } from 'lucide-react';
 import { getAppBaseUrl } from '@/lib/utils';
 
@@ -37,6 +40,10 @@ interface Participant {
   photoUrl: string;
   verificationToken: string;
   status: 'ACTIVE' | 'REVOKED' | string;
+  checkedIn: boolean;
+  foodPassGenerated: boolean;
+  foodPassId?: string | null;
+  foodReceived: boolean;
   createdAt: string;
 }
 
@@ -50,6 +57,10 @@ interface WhitelistItem {
   status: 'PENDING' | 'CLAIMED' | 'REVOKED' | string;
   claimedAt?: string | null;
   participantId?: string | null;
+  checkedIn: boolean;
+  foodPassGenerated: boolean;
+  foodPassId?: string | null;
+  foodReceived: boolean;
   createdAt: string;
 }
 
@@ -62,20 +73,15 @@ interface AccessCodeItem {
   usedAt?: string | null;
 }
 
-interface Stats {
-  totalParticipants: number;
-  activePasses: number;
-  revokedPasses: number;
-  totalTeams: number;
-  totalColleges: number;
-}
-
 interface WhitelistStats {
   totalCapacity: number;
   totalPreRegistered: number;
   claimedPasses: number;
   pendingPasses: number;
   remainingSlots: number;
+  totalCheckedIn?: number;
+  totalFoodPasses?: number;
+  totalFoodReceived?: number;
 }
 
 export default function AdminDashboardPage() {
@@ -84,20 +90,15 @@ export default function AdminDashboardPage() {
   const [activeTab, setActiveTab] = useState<'whitelist' | 'participants' | 'access-codes'>('whitelist');
 
   // Stats
-  const [stats, setStats] = useState<Stats>({
-    totalParticipants: 0,
-    activePasses: 0,
-    revokedPasses: 0,
-    totalTeams: 0,
-    totalColleges: 0,
-  });
-
   const [whitelistStats, setWhitelistStats] = useState<WhitelistStats>({
     totalCapacity: 200,
     totalPreRegistered: 0,
     claimedPasses: 0,
     pendingPasses: 0,
     remainingSlots: 200,
+    totalCheckedIn: 0,
+    totalFoodPasses: 0,
+    totalFoodReceived: 0,
   });
 
   // Data Arrays
@@ -117,6 +118,7 @@ export default function AdminDashboardPage() {
   // Bulk CSV Text State
   const [csvText, setCsvText] = useState('');
   const [isImportingCsv, setIsImportingCsv] = useState(false);
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
 
   // Access Code Creation State
   const [newCustomCode, setNewCustomCode] = useState('');
@@ -135,7 +137,6 @@ export default function AdminDashboardPage() {
       const data = await res.json();
       if (data.success) {
         setParticipants(data.participants);
-        setStats(data.stats);
       }
     } catch (err) {
       console.error('Failed to fetch participants:', err);
@@ -144,7 +145,7 @@ export default function AdminDashboardPage() {
     }
   };
 
-  // Fetch Whitelist
+  // Fetch Whitelist & Compute Dashboard Analytics
   const fetchWhitelist = async (query = '') => {
     try {
       setLoading(true);
@@ -156,7 +157,18 @@ export default function AdminDashboardPage() {
       const data = await res.json();
       if (data.success) {
         setWhitelist(data.whitelist);
-        setWhitelistStats(data.stats);
+
+        // Compute exact counts for analytics counters
+        const totalCheckedIn = data.whitelist.filter((w: WhitelistItem) => w.checkedIn).length;
+        const totalFoodPasses = data.whitelist.filter((w: WhitelistItem) => w.foodPassGenerated).length;
+        const totalFoodReceived = data.whitelist.filter((w: WhitelistItem) => w.foodReceived).length;
+
+        setWhitelistStats({
+          ...data.stats,
+          totalCheckedIn,
+          totalFoodPasses,
+          totalFoodReceived,
+        });
       }
     } catch (err) {
       console.error('Failed to fetch whitelist:', err);
@@ -197,7 +209,19 @@ export default function AdminDashboardPage() {
     }
   };
 
-  // Single Add Whitelist Participant (Email Primary)
+  // Download Excel-Compatible CSV Export
+  const handleExportExcel = async () => {
+    try {
+      setIsExportingExcel(true);
+      window.location.href = '/api/admin/export-excel';
+    } catch (err) {
+      console.error('Export Excel error:', err);
+    } finally {
+      setTimeout(() => setIsExportingExcel(false), 2000);
+    }
+  };
+
+  // Single Add Whitelist Participant
   const handleAddSingleWhitelist = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!singleEmail.trim()) {
@@ -234,7 +258,7 @@ export default function AdminDashboardPage() {
     }
   };
 
-  // Bulk Import CSV (Format: Email, Full Name, College, Team, Access Code)
+  // Bulk Import CSV
   const handleBulkCsvImport = async () => {
     if (!csvText.trim()) return;
 
@@ -246,7 +270,6 @@ export default function AdminDashboardPage() {
       for (const line of lines) {
         const parts = line.split(',').map((p) => p.trim());
         if (parts.length >= 1 && parts[0]) {
-          // If first column contains '@', treat as email
           const isEmailFirst = parts[0].includes('@');
           const email = isEmailFirst ? parts[0] : parts[3] || parts[0];
           const fullName = isEmailFirst ? parts[1] || 'Selected Participant' : parts[0];
@@ -285,6 +308,23 @@ export default function AdminDashboardPage() {
     }
   };
 
+  // Independent Status Toggles (checkedIn & foodReceived)
+  const handleToggleStatusField = async (id: string, type: 'checkedIn' | 'foodReceived', currentValue: boolean) => {
+    try {
+      const res = await fetch('/api/admin/toggle-status', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, type, value: !currentValue }),
+      });
+      if (res.ok) {
+        fetchWhitelist(searchQuery);
+        fetchParticipants(searchQuery);
+      }
+    } catch (err) {
+      console.error('Toggle status error:', err);
+    }
+  };
+
   // Delete Whitelist Entry
   const handleDeleteWhitelist = async (id: string) => {
     if (!confirm('Are you sure you want to remove this email address from the whitelist?')) return;
@@ -310,7 +350,7 @@ export default function AdminDashboardPage() {
     }
   };
 
-  // Toggle Participant Status (ACTIVE <-> REVOKED)
+  // Toggle Main Pass Revocation
   const handleToggleStatus = async (participantId: string, currentStatus: string) => {
     const nextStatus = currentStatus === 'ACTIVE' ? 'REVOKED' : 'ACTIVE';
     try {
@@ -322,8 +362,7 @@ export default function AdminDashboardPage() {
 
       if (res.ok) {
         fetchParticipants(searchQuery);
-      } else {
-        alert('Failed to update status.');
+        fetchWhitelist(searchQuery);
       }
     } catch (err) {
       console.error('Update status error:', err);
@@ -386,7 +425,7 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="py-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto space-y-8">
-      {/* HEADER BAR */}
+      {/* HEADER BAR & EXCEL EXPORT BUTTON */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-brand-border/60 pb-6">
         <div>
           <h1 className="font-display font-black text-2xl sm:text-3xl text-white">
@@ -397,7 +436,17 @@ export default function AdminDashboardPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* VIEW DATA IN EXCEL BUTTON */}
+          <button
+            onClick={handleExportExcel}
+            disabled={isExportingExcel}
+            className="p-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-mono text-xs font-bold flex items-center gap-1.5 transition-colors shadow-lg shadow-emerald-600/20 disabled:opacity-50"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>{isExportingExcel ? 'Exporting...' : 'VIEW DATA IN EXCEL'}</span>
+          </button>
+
           <button
             onClick={() => {
               fetchWhitelist(searchQuery);
@@ -407,7 +456,7 @@ export default function AdminDashboardPage() {
             className="p-2.5 bg-brand-card hover:bg-white/10 text-gray-300 rounded-xl border border-brand-border text-xs font-mono flex items-center gap-1.5 transition-colors"
           >
             <RefreshCw className="w-4 h-4 text-red-400" />
-            <span>Refresh Data</span>
+            <span>Refresh</span>
           </button>
 
           <button
@@ -420,22 +469,22 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
-      {/* STATS CARDS */}
+      {/* STATS ANALYTICS COUNTERS */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="bg-brand-card p-5 rounded-2xl border border-brand-border/80 space-y-1 shadow-lg">
           <div className="text-[11px] font-mono text-gray-400 uppercase tracking-wider flex items-center justify-between">
-            <span>200 MAX CAPACITY</span>
+            <span>REGISTERED</span>
             <Users className="w-4 h-4 text-red-400" />
           </div>
           <div className="font-display font-black text-2xl sm:text-3xl text-white">
-            {whitelistStats.totalPreRegistered} / 200
+            {whitelistStats.totalPreRegistered}
           </div>
           <p className="text-[10px] text-gray-500 font-mono">Whitelisted Emails</p>
         </div>
 
         <div className="bg-brand-card p-5 rounded-2xl border border-brand-border/80 space-y-1 shadow-lg">
           <div className="text-[11px] font-mono text-emerald-400 uppercase tracking-wider flex items-center justify-between">
-            <span>PASSES CLAIMED</span>
+            <span>MAIN PASSES</span>
             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
           </div>
           <div className="font-display font-black text-2xl sm:text-3xl text-emerald-400">
@@ -445,36 +494,36 @@ export default function AdminDashboardPage() {
         </div>
 
         <div className="bg-brand-card p-5 rounded-2xl border border-brand-border/80 space-y-1 shadow-lg">
-          <div className="text-[11px] font-mono text-amber-400 uppercase tracking-wider flex items-center justify-between">
-            <span>PENDING SLOTS</span>
-            <Award className="w-4 h-4 text-amber-400" />
+          <div className="text-[11px] font-mono text-sky-400 uppercase tracking-wider flex items-center justify-between">
+            <span>CHECKED IN</span>
+            <ShieldCheck className="w-4 h-4 text-sky-400" />
           </div>
-          <div className="font-display font-black text-2xl sm:text-3xl text-amber-400">
-            {whitelistStats.pendingPasses}
+          <div className="font-display font-black text-2xl sm:text-3xl text-sky-400">
+            {whitelistStats.totalCheckedIn || 0}
           </div>
-          <p className="text-[10px] text-gray-500 font-mono">Awaiting Pass Claim</p>
+          <p className="text-[10px] text-gray-500 font-mono">Event Gate Entry</p>
         </div>
 
         <div className="bg-brand-card p-5 rounded-2xl border border-brand-border/80 space-y-1 shadow-lg">
-          <div className="text-[11px] font-mono text-rose-400 uppercase tracking-wider flex items-center justify-between">
-            <span>REVOKED PASSES</span>
-            <AlertTriangle className="w-4 h-4 text-rose-400" />
+          <div className="text-[11px] font-mono text-amber-400 uppercase tracking-wider flex items-center justify-between">
+            <span>FOOD PASSES</span>
+            <Award className="w-4 h-4 text-amber-400" />
           </div>
-          <div className="font-display font-black text-2xl sm:text-3xl text-rose-400">
-            {stats.revokedPasses}
+          <div className="font-display font-black text-2xl sm:text-3xl text-amber-400">
+            {whitelistStats.totalFoodPasses || 0}
           </div>
-          <p className="text-[10px] text-gray-500 font-mono">Denied Gate Entry</p>
+          <p className="text-[10px] text-gray-500 font-mono">Food Passes Issued</p>
         </div>
 
         <div className="bg-brand-card p-5 rounded-2xl border border-brand-border/80 space-y-1 shadow-lg col-span-2 lg:col-span-1">
-          <div className="text-[11px] font-mono text-sky-400 uppercase tracking-wider flex items-center justify-between">
-            <span>COLLEGES</span>
-            <Building className="w-4 h-4 text-sky-400" />
+          <div className="text-[11px] font-mono text-emerald-300 uppercase tracking-wider flex items-center justify-between">
+            <span>FOOD RECEIVED</span>
+            <Utensils className="w-4 h-4 text-emerald-300" />
           </div>
-          <div className="font-display font-black text-2xl sm:text-3xl text-white">
-            {stats.totalColleges}
+          <div className="font-display font-black text-2xl sm:text-3xl text-emerald-300">
+            {whitelistStats.totalFoodReceived || 0}
           </div>
-          <p className="text-[10px] text-gray-500 font-mono">Institutions Represented</p>
+          <p className="text-[10px] text-gray-500 font-mono">Meals Distributed</p>
         </div>
       </div>
 
@@ -489,7 +538,7 @@ export default function AdminDashboardPage() {
           }`}
         >
           <ShieldCheck className="w-4 h-4" />
-          <span>Email Whitelist (200 Max) ({whitelist.length})</span>
+          <span>Email Whitelist ({whitelist.length})</span>
         </button>
 
         <button
@@ -517,12 +566,12 @@ export default function AdminDashboardPage() {
         </button>
       </div>
 
-      {/* TAB 1: PRE-REGISTERED EMAIL WHITELIST */}
+      {/* TAB 1: PRE-REGISTERED EMAIL WHITELIST & TRACKING */}
       {activeTab === 'whitelist' && (
         <div className="space-y-6">
           {/* INPUT TOOLS */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Single Add Form (Email Primary) */}
+            {/* Single Add Form */}
             <div className="bg-brand-card border border-brand-border rounded-2xl p-5 space-y-4 shadow-lg">
               <h3 className="font-display font-bold text-sm text-white flex items-center gap-2">
                 <UserPlus className="w-4 h-4 text-red-400" />
@@ -569,14 +618,6 @@ export default function AdminDashboardPage() {
                   />
                 </div>
 
-                <input
-                  type="text"
-                  placeholder="Access Code (Optional)"
-                  value={singleCode}
-                  onChange={(e) => setSingleCode(e.target.value.toUpperCase())}
-                  className="w-full px-3.5 py-2.5 bg-brand-dark border border-brand-border rounded-xl text-white font-mono placeholder-gray-500 focus:outline-none focus:border-brand-red"
-                />
-
                 <button
                   type="submit"
                   className="w-full py-2.5 bg-brand-red hover:bg-red-600 text-white font-mono font-bold rounded-xl transition-colors"
@@ -620,13 +661,13 @@ priya.patel@example.com, Priya Patel, AU, Tech Titans"
             </div>
           </div>
 
-          {/* Search Bar & Table */}
+          {/* Search & Whitelist Table with Independent Check-in & Food Tracking */}
           <div className="space-y-4">
             <form onSubmit={handleSearchSubmit} className="flex gap-2 max-w-lg">
               <div className="relative flex-1">
                 <input
                   type="text"
-                  placeholder="Search whitelist by email, name, college, team..."
+                  placeholder="Search by email, name, college, team..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full pl-9 pr-4 py-2.5 bg-brand-card border border-brand-border rounded-xl text-xs text-white placeholder-gray-500 focus:outline-none focus:border-brand-red font-mono"
@@ -645,75 +686,126 @@ priya.patel@example.com, Priya Patel, AU, Tech Titans"
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-brand-dark border-b border-brand-border text-[11px] font-mono text-gray-400 uppercase tracking-wider">
-                    <th className="py-3.5 px-4">EMAIL ADDRESS</th>
-                    <th className="py-3.5 px-4">FULL NAME</th>
+                    <th className="py-3.5 px-4">PARTICIPANT ID</th>
+                    <th className="py-3.5 px-4">EMAIL</th>
+                    <th className="py-3.5 px-4">NAME</th>
                     <th className="py-3.5 px-4">COLLEGE</th>
-                    <th className="py-3.5 px-4">TEAM</th>
-                    <th className="py-3.5 px-4">STATUS</th>
-                    <th className="py-3.5 px-4">PASS ID</th>
+                    <th className="py-3.5 px-4">PASS STATUS</th>
+                    <th className="py-3.5 px-4">CHECK-IN</th>
+                    <th className="py-3.5 px-4">FOOD PASS</th>
+                    <th className="py-3.5 px-4">FOOD RECEIVED</th>
                     <th className="py-3.5 px-4 text-right">ACTIONS</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-brand-border/60 text-xs">
                   {loading ? (
                     <tr>
-                      <td colSpan={7} className="py-12 text-center text-gray-400 font-mono">
+                      <td colSpan={9} className="py-12 text-center text-gray-400 font-mono">
                         <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-brand-red" />
-                        Loading email whitelist records...
+                        Loading whitelist records...
                       </td>
                     </tr>
                   ) : whitelist.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-12 text-center text-gray-400 font-mono">
+                      <td colSpan={9} className="py-12 text-center text-gray-400 font-mono">
                         No pre-registered emails in whitelist.
                       </td>
                     </tr>
                   ) : (
                     whitelist.map((w) => (
                       <tr key={w.id} className="hover:bg-white/5 transition-colors">
+                        {/* ID */}
                         <td className="py-3 px-4 font-mono font-bold text-red-400">
+                          {w.participantId || '—'}
+                        </td>
+
+                        {/* Email */}
+                        <td className="py-3 px-4 font-mono font-bold text-white">
                           {w.email || '—'}
                         </td>
-                        <td className="py-3 px-4 font-bold text-white">{w.fullName}</td>
+
+                        {/* Name */}
+                        <td className="py-3 px-4 text-gray-200 font-semibold">{w.fullName}</td>
+
+                        {/* College */}
                         <td className="py-3 px-4 text-gray-300">{w.collegeName}</td>
-                        <td className="py-3 px-4 text-gray-300">{w.teamName}</td>
+
+                        {/* Main Pass Status */}
                         <td className="py-3 px-4">
                           {w.status === 'CLAIMED' ? (
-                            <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-mono text-[10px] font-bold">
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-mono text-[10px] font-bold">
                               PASS CLAIMED
                             </span>
-                          ) : w.status === 'PENDING' ? (
-                            <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 font-mono text-[10px] font-bold">
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 font-mono text-[10px] font-bold">
                               PENDING
                             </span>
+                          )}
+                        </td>
+
+                        {/* CHECK-IN STATUS (Independent Toggle) */}
+                        <td className="py-3 px-4">
+                          <button
+                            onClick={() => handleToggleStatusField(w.id, 'checkedIn', w.checkedIn)}
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold transition-all flex items-center gap-1 ${
+                              w.checkedIn
+                                ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
+                                : 'bg-white/5 text-gray-400 hover:text-white border border-white/10'
+                            }`}
+                          >
+                            {w.checkedIn ? (
+                              <>
+                                <CheckCircle2 className="w-3 h-3 text-sky-400" />
+                                <span>✓ Checked In</span>
+                              </>
+                            ) : (
+                              <>
+                                <XCircle className="w-3 h-3 text-gray-500" />
+                                <span>✕ Not Checked In</span>
+                              </>
+                            )}
+                          </button>
+                        </td>
+
+                        {/* FOOD PASS STATUS */}
+                        <td className="py-3 px-4">
+                          {w.foodPassGenerated ? (
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-mono text-[10px] font-bold">
+                              ✓ {w.foodPassId || 'Food Pass'}
+                            </span>
                           ) : (
-                            <span className="px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30 font-mono text-[10px] font-bold">
-                              REVOKED
+                            <span className="px-2 py-0.5 rounded-full bg-white/5 text-gray-400 border border-white/10 font-mono text-[10px]">
+                              ✕ No Pass
                             </span>
                           )}
                         </td>
-                        <td className="py-3 px-4 font-mono font-bold text-gray-300">
-                          {w.participantId ? (
-                            <Link
-                              href={`/pass/${w.participantId}`}
-                              target="_blank"
-                              className="text-red-400 hover:underline"
-                            >
-                              {w.participantId}
-                            </Link>
-                          ) : (
-                            '—'
-                          )}
+
+                        {/* FOOD RECEIVED STATUS (Independent Toggle) */}
+                        <td className="py-3 px-4">
+                          <button
+                            onClick={() => handleToggleStatusField(w.id, 'foodReceived', w.foodReceived)}
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold transition-all flex items-center gap-1 ${
+                              w.foodReceived
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                : 'bg-white/5 text-gray-400 hover:text-white border border-white/10'
+                            }`}
+                          >
+                            {w.foodReceived ? (
+                              <>
+                                <Utensils className="w-3 h-3 text-emerald-300" />
+                                <span>✓ Food Received</span>
+                              </>
+                            ) : (
+                              <>
+                                <Utensils className="w-3 h-3 text-gray-500" />
+                                <span>✕ Not Received</span>
+                              </>
+                            )}
+                          </button>
                         </td>
+
+                        {/* Actions */}
                         <td className="py-3 px-4 text-right space-x-2">
-                          {w.status === 'CLAIMED' && (
-                            <button
-                              onClick={() => handleResetWhitelistStatus(w.id)}
-                              className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/40 text-amber-400 border border-amber-500/30 rounded-lg text-[10px] font-mono font-bold transition-colors"
-                            >
-                              RESET TO PENDING
-                            </button>
-                          )}
                           <button
                             onClick={() => handleDeleteWhitelist(w.id)}
                             className="p-1.5 bg-rose-500/10 hover:bg-rose-500/30 text-rose-400 rounded-lg transition-colors"
@@ -731,7 +823,7 @@ priya.patel@example.com, Priya Patel, AU, Tech Titans"
         </div>
       )}
 
-      {/* TAB 2: GENERATED PASSES */}
+      {/* TAB 2: GENERATED MAIN PASSES */}
       {activeTab === 'participants' && (
         <div className="space-y-4">
           <form onSubmit={handleSearchSubmit} className="flex gap-2 max-w-lg">
@@ -762,22 +854,23 @@ priya.patel@example.com, Priya Patel, AU, Tech Titans"
                   <th className="py-3.5 px-4">COLLEGE</th>
                   <th className="py-3.5 px-4">TEAM</th>
                   <th className="py-3.5 px-4">PARTICIPANT ID</th>
+                  <th className="py-3.5 px-4">CHECK-IN</th>
+                  <th className="py-3.5 px-4">FOOD RECEIVED</th>
                   <th className="py-3.5 px-4">STATUS</th>
-                  <th className="py-3.5 px-4">CREATED</th>
                   <th className="py-3.5 px-4 text-right">ACTIONS</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-brand-border/60 text-xs">
                 {loading ? (
                   <tr>
-                    <td colSpan={8} className="py-12 text-center text-gray-400 font-mono">
+                    <td colSpan={9} className="py-12 text-center text-gray-400 font-mono">
                       <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-brand-red" />
                       Loading generated pass records...
                     </td>
                   </tr>
                 ) : participants.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-12 text-center text-gray-400 font-mono">
+                    <td colSpan={9} className="py-12 text-center text-gray-400 font-mono">
                       No generated passes found.
                     </td>
                   </tr>
@@ -803,6 +896,25 @@ priya.patel@example.com, Priya Patel, AU, Tech Titans"
                       <td className="py-3 px-4 font-mono font-bold text-red-400">
                         {p.participantId}
                       </td>
+
+                      {/* Check-in */}
+                      <td className="py-3 px-4 font-mono font-bold">
+                        {p.checkedIn ? (
+                          <span className="text-sky-400 font-bold">✓ Checked In</span>
+                        ) : (
+                          <span className="text-gray-500">✕ Not Checked In</span>
+                        )}
+                      </td>
+
+                      {/* Food Received */}
+                      <td className="py-3 px-4 font-mono font-bold">
+                        {p.foodReceived ? (
+                          <span className="text-emerald-300 font-bold">✓ Food Received</span>
+                        ) : (
+                          <span className="text-gray-500">✕ Not Received</span>
+                        )}
+                      </td>
+
                       <td className="py-3 px-4">
                         {p.status === 'ACTIVE' ? (
                           <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-mono text-[10px] font-bold">
@@ -814,9 +926,6 @@ priya.patel@example.com, Priya Patel, AU, Tech Titans"
                           </span>
                         )}
                       </td>
-                      <td className="py-3 px-4 text-gray-500 font-mono text-[11px]">
-                        {new Date(p.createdAt).toLocaleDateString()}
-                      </td>
                       <td className="py-3 px-4 text-right space-x-2">
                         <Link
                           href={`/pass/${p.participantId}`}
@@ -825,23 +934,6 @@ priya.patel@example.com, Priya Patel, AU, Tech Titans"
                         >
                           <Eye className="w-3.5 h-3.5" />
                         </Link>
-                        <Link
-                          href={`/verify/${p.participantId}`}
-                          target="_blank"
-                          className="inline-flex p-1.5 rounded-lg bg-white/5 hover:bg-white/15 text-emerald-400 transition-colors"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </Link>
-                        <button
-                          onClick={() => copyUrl(p.participantId)}
-                          className="inline-flex p-1.5 rounded-lg bg-white/5 hover:bg-white/15 text-sky-400 transition-colors"
-                        >
-                          {copiedId === p.participantId ? (
-                            <Check className="w-3.5 h-3.5 text-emerald-400" />
-                          ) : (
-                            <Copy className="w-3.5 h-3.5" />
-                          )}
-                        </button>
                         <button
                           onClick={() => handleToggleStatus(p.participantId, p.status)}
                           className={`inline-flex px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold transition-colors ${

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(
   req: NextRequest,
   { params }: { params: { id: string } }
@@ -42,7 +44,21 @@ export async function GET(
           teamName: participant.teamName,
           photoUrl: participant.photoUrl,
           status: 'REVOKED',
+          checkedIn: participant.checkedIn,
         },
+      });
+    }
+
+    // Auto-mark checkedIn = true when valid main pass QR is verified
+    if (!participant.checkedIn) {
+      await prisma.participant.update({
+        where: { id: participant.id },
+        data: { checkedIn: true },
+      });
+
+      await prisma.whitelistParticipant.updateMany({
+        where: { participantId: participant.participantId },
+        data: { checkedIn: true },
       });
     }
 
@@ -56,6 +72,7 @@ export async function GET(
         teamName: participant.teamName,
         photoUrl: participant.photoUrl,
         status: 'ACTIVE',
+        checkedIn: true,
         createdAt: participant.createdAt,
       },
     });

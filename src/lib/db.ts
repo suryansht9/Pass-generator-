@@ -14,6 +14,10 @@ function getDatabaseUrl(): string {
       if (!fs.existsSync(tmpDbPath)) {
         const sourceDb = path.join(process.cwd(), 'prisma', 'dev.db');
         if (fs.existsSync(sourceDb)) {
+          const tmpDir = path.dirname(tmpDbPath);
+          if (!fs.existsSync(tmpDir)) {
+            fs.mkdirSync(tmpDir, { recursive: true });
+          }
           fs.copyFileSync(sourceDb, tmpDbPath);
           try {
             fs.chmodSync(tmpDbPath, 0o666);

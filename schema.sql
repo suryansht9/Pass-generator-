@@ -11,6 +11,10 @@ CREATE TABLE IF NOT EXISTS public.participants (
   photo_url TEXT NOT NULL,
   verification_token TEXT UNIQUE NOT NULL,
   status TEXT NOT NULL DEFAULT 'ACTIVE', -- 'ACTIVE' or 'REVOKED'
+  checked_in BOOLEAN NOT NULL DEFAULT FALSE,
+  food_pass_generated BOOLEAN NOT NULL DEFAULT FALSE,
+  food_pass_id TEXT UNIQUE,
+  food_received BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -43,11 +47,16 @@ CREATE TABLE IF NOT EXISTS public.whitelist_participants (
   status TEXT NOT NULL DEFAULT 'PENDING', -- 'PENDING', 'CLAIMED', 'REVOKED'
   claimed_at TIMESTAMP WITH TIME ZONE,
   participant_id TEXT UNIQUE,
+  checked_in BOOLEAN NOT NULL DEFAULT FALSE,
+  food_pass_generated BOOLEAN NOT NULL DEFAULT FALSE,
+  food_pass_id TEXT UNIQUE,
+  food_received BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_whitelist_full_name ON public.whitelist_participants (full_name);
 CREATE INDEX IF NOT EXISTS idx_whitelist_access_code ON public.whitelist_participants (access_code);
+CREATE INDEX IF NOT EXISTS idx_whitelist_email ON public.whitelist_participants (email);
 
 -- Enable RLS if using Supabase client directly
 ALTER TABLE public.participants ENABLE ROW LEVEL SECURITY;
