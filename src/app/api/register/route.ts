@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import { formatParticipantId, generateVerificationToken } from '@/lib/utils';
-import {
-  syncPersistentWhitelist,
-  savePersistedParticipant,
-} from '@/lib/persistentStore';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+const NO_CACHE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+  'Pragma': 'no-cache',
+  'Expires': '0',
+};
 
 export async function POST(req: NextRequest) {
   try {
@@ -15,71 +18,105 @@ export async function POST(req: NextRequest) {
 
     // Validation
     if (!email || !email.trim()) {
-      return NextResponse.json({ error: 'Email address is required.' }, { status: 400 });
+      return NextResponse.json({ error: 'Email address is required.' }, { status: 400, headers: NO_CACHE_HEADERS });
     }
     if (!fullName || !fullName.trim()) {
-      return NextResponse.json({ error: 'Full name is required.' }, { status: 400 });
+      return NextResponse.json({ error: 'Full name is required.' }, { status: 400, headers: NO_CACHE_HEADERS });
     }
     if (!collegeName || !collegeName.trim()) {
-      return NextResponse.json({ error: 'College name is required.' }, { status: 400 });
+      return NextResponse.json({ error: 'College name is required.' }, { status: 400, headers: NO_CACHE_HEADERS });
     }
     if (!teamName || !teamName.trim()) {
-      return NextResponse.json({ error: 'Team name is required.' }, { status: 400 });
+      return NextResponse.json({ error: 'Team name is required.' }, { status: 400, headers: NO_CACHE_HEADERS });
     }
     if (!photoUrl) {
-      return NextResponse.json({ error: 'Profile photo is required.' }, { status: 400 });
+      return NextResponse.json({ error: 'Profile photo is required.' }, { status: 400, headers: NO_CACHE_HEADERS });
     }
 
-    // PRIMARY & UNIQUE ELIGIBILITY IDENTIFIER: EMAIL ADDRESS
     const emailToMatch = email.trim().toLowerCase();
     const codeToMatch = accessCode ? accessCode.trim().toUpperCase() : null;
 
-    // Auto-sync persistent store to database before lookup
-    await syncPersistentWhitelist(prisma);
+    // Check if participant pass already exists in Participant table by email
+    const existingParticipant = await prisma.participant.findFirst({
+      where: { email: emailToMatch },
+    });
+
+    if (existingParticipant) {
+      return NextResponse.json(
+        {
+          error: 'Pass has already been generated for this email address.',
+          isAlreadyClaimed: true,
+          participantId: existingParticipant.participantId,
+        },
+        { status: 400, headers: NO_CACHE_HEADERS }
+      );
+    }
 
     // 1. STRICT EMAIL WHITELIST LOOKUP
     let whitelistRecord = await prisma.whitelistParticipant.findFirst({
       where: { email: emailToMatch },
     });
 
-    // Fallback lookup by access code if provided
+    // Fallback lookup by access code if provided in WhitelistParticipant
     if (!whitelistRecord && codeToMatch) {
       whitelistRecord = await prisma.whitelistParticipant.findFirst({
         where: { accessCode: codeToMatch },
       });
     }
 
-    // REJECT REGISTRATION IF EMAIL IS NOT PRE-REGISTERED IN WHITELIST
-    if (!whitelistRecord) {
+    // Check AccessCode table directly if not found in WhitelistParticipant
+    let validAccessCodeRecord = null;
+    if (!whitelistRecord && codeToMatch) {
+      validAccessCodeRecord = await prisma.accessCode.findFirst({
+        where: { code: codeToMatch, status: 'ACTIVE' },
+      });
+    }
+
+    // REJECT REGISTRATION IF EMAIL/ACCESS CODE IS NOT REGISTERED OR VALID
+    if (!whitelistRecord && !validAccessCodeRecord) {
       return NextResponse.json(
         {
-          error: 'Your email address is not registered for this hackathon. Please contact the organizers.',
+          error: 'Your email address or access code is not registered for this hackathon. Please contact the organizers.',
           isUnregistered: true,
         },
-        { status: 403 }
+        { status: 403, headers: NO_CACHE_HEADERS }
       );
     }
 
     // CHECK IF PASS IS ALREADY CLAIMED OR REVOKED
-    if (whitelistRecord.status === 'CLAIMED') {
+    if (whitelistRecord && whitelistRecord.status === 'CLAIMED') {
       return NextResponse.json(
         {
           error: 'Pass has already been generated for this email address.',
           isAlreadyClaimed: true,
           participantId: whitelistRecord.participantId,
         },
-        { status: 400 }
+        { status: 400, headers: NO_CACHE_HEADERS }
       );
     }
 
-    if (whitelistRecord.status === 'REVOKED') {
+    if (whitelistRecord && whitelistRecord.status === 'REVOKED') {
       return NextResponse.json(
         {
           error: 'Your registration has been revoked by the organizers.',
           isRevoked: true,
         },
-        { status: 403 }
+        { status: 403, headers: NO_CACHE_HEADERS }
       );
+    }
+
+    // If registered via valid AccessCode without existing WhitelistParticipant, create Whitelist entry
+    if (!whitelistRecord && validAccessCodeRecord) {
+      whitelistRecord = await prisma.whitelistParticipant.create({
+        data: {
+          email: emailToMatch,
+          fullName: fullName.trim(),
+          collegeName: collegeName.trim(),
+          teamName: teamName.trim(),
+          accessCode: codeToMatch,
+          status: 'PENDING',
+        },
+      });
     }
 
     // 2. GENERATE UNIQUE PARTICIPANT ID (e.g. CFC-2026-0001)
@@ -94,33 +131,35 @@ export async function POST(req: NextRequest) {
 
     const verificationToken = generateVerificationToken();
 
-    // 3. CREATE OFFICIAL PARTICIPANT PASS RECORD
+    // 3. CREATE OFFICIAL PARTICIPANT PASS RECORD IN DATABASE
     const participant = await prisma.participant.create({
       data: {
         participantId,
         fullName: fullName.trim(),
         collegeName: collegeName.trim(),
         teamName: teamName.trim(),
+        email: emailToMatch,
         photoUrl,
         verificationToken,
         status: 'ACTIVE',
       },
     });
 
-    // 4. MARK WHITELIST ENTRY AS CLAIMED
-    const updatedWhitelistRecord = await prisma.whitelistParticipant.update({
-      where: { id: whitelistRecord.id },
-      data: {
-        status: 'CLAIMED',
-        claimedAt: new Date(),
-        participantId: participant.participantId,
-        fullName: fullName.trim(),
-        collegeName: collegeName.trim(),
-        teamName: teamName.trim(),
-      },
-    });
-
-    savePersistedParticipant(updatedWhitelistRecord);
+    // 4. MARK WHITELIST ENTRY AS CLAIMED IN DATABASE
+    if (whitelistRecord) {
+      await prisma.whitelistParticipant.update({
+        where: { id: whitelistRecord.id },
+        data: {
+          status: 'CLAIMED',
+          claimedAt: new Date(),
+          participantId: participant.participantId,
+          fullName: fullName.trim(),
+          collegeName: collegeName.trim(),
+          teamName: teamName.trim(),
+          email: emailToMatch,
+        },
+      });
+    }
 
     // Mark access code as USED if applicable
     if (codeToMatch) {
@@ -134,16 +173,19 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({
-      success: true,
-      participantId: participant.participantId,
-      fullName: participant.fullName,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        participantId: participant.participantId,
+        fullName: participant.fullName,
+      },
+      { headers: NO_CACHE_HEADERS }
+    );
   } catch (error: any) {
     console.error('Registration error:', error);
     return NextResponse.json(
       { error: error?.message || 'Registration failed due to a server error. Please try again.' },
-      { status: 500 }
+      { status: 500, headers: NO_CACHE_HEADERS }
     );
   }
 }

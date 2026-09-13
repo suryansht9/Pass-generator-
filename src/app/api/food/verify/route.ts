@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import {
-  syncPersistentWhitelist,
-  savePersistedParticipant,
-} from '@/lib/persistentStore';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+const NO_CACHE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+  'Pragma': 'no-cache',
+  'Expires': '0',
+};
 
 export async function POST(req: NextRequest) {
   try {
@@ -15,116 +18,140 @@ export async function POST(req: NextRequest) {
     if (!foodPassId || !foodPassId.trim()) {
       return NextResponse.json(
         { status: 'INVALID', error: 'Food Pass ID is required.' },
-        { status: 400 }
+        { status: 400, headers: NO_CACHE_HEADERS }
       );
     }
 
     const normalizedPassId = foodPassId.trim().toUpperCase();
 
-    // Auto-sync persistent store to database before lookup
-    await syncPersistentWhitelist(prisma);
-
-    // 1. Search database for participant with this Food Pass ID
+    // 1. Search WhitelistParticipant table
     let whitelistRecord = await prisma.whitelistParticipant.findFirst({
       where: {
-        foodPassId: {
-          equals: normalizedPassId,
-        },
+        foodPassId: { equals: normalizedPassId },
       },
     });
 
-    // Fallback case-insensitive check if SQLite provider requires it
-    if (!whitelistRecord) {
-      const allWithFoodPass = await prisma.whitelistParticipant.findMany({
-        where: { foodPassGenerated: true },
-      });
-      whitelistRecord =
-        allWithFoodPass.find(
-          (item) => item.foodPassId?.trim().toUpperCase() === normalizedPassId
-        ) || null;
+    // 2. Search Participant table
+    let participantRecord = await prisma.participant.findFirst({
+      where: {
+        foodPassId: { equals: normalizedPassId },
+      },
+    });
+
+    if (!whitelistRecord && !participantRecord) {
+      // Case-insensitive fallback search
+      const allWhitelist = await prisma.whitelistParticipant.findMany({ where: { foodPassGenerated: true } });
+      whitelistRecord = allWhitelist.find((w) => w.foodPassId?.trim().toUpperCase() === normalizedPassId) || null;
+
+      const allParticipants = await prisma.participant.findMany({ where: { foodPassGenerated: true } });
+      participantRecord = allParticipants.find((p) => p.foodPassId?.trim().toUpperCase() === normalizedPassId) || null;
     }
 
-    // 2. Reject if Food Pass ID does not exist
-    if (!whitelistRecord) {
+    // 3. Reject if Food Pass ID does not exist in either table
+    if (!whitelistRecord && !participantRecord) {
       return NextResponse.json(
-        { status: 'INVALID', error: 'Invalid Food Pass ID. Pass record not found.' },
-        { status: 404 }
+        { status: 'INVALID', error: 'Invalid Food Pass ID. Pass record not found in database.' },
+        { status: 404, headers: NO_CACHE_HEADERS }
       );
     }
 
-    // 3. Reject if participant is revoked
-    if (whitelistRecord.status === 'REVOKED') {
+    const status = whitelistRecord?.status || participantRecord?.status;
+    const fullName = whitelistRecord?.fullName || participantRecord?.fullName || 'Participant';
+    const email = whitelistRecord?.email || participantRecord?.email || null;
+    const teamName = whitelistRecord?.teamName || participantRecord?.teamName || '—';
+    const collegeName = whitelistRecord?.collegeName || participantRecord?.collegeName || '—';
+    const participantId = whitelistRecord?.participantId || participantRecord?.participantId || '—';
+
+    // 4. Reject if participant is revoked
+    if (status === 'REVOKED') {
       return NextResponse.json(
         {
           status: 'REVOKED',
           error: 'Participant registration has been revoked by organizers.',
           participant: {
-            fullName: whitelistRecord.fullName,
-            email: whitelistRecord.email,
-            teamName: whitelistRecord.teamName,
-            collegeName: whitelistRecord.collegeName,
-            participantId: whitelistRecord.participantId || '—',
-            foodPassId: whitelistRecord.foodPassId,
-            foodReceived: whitelistRecord.foodReceived,
+            fullName,
+            email,
+            teamName,
+            collegeName,
+            participantId,
+            foodPassId: normalizedPassId,
+            foodReceived: whitelistRecord?.foodReceived || participantRecord?.foodReceived || false,
           },
         },
-        { status: 403 }
+        { status: 403, headers: NO_CACHE_HEADERS }
       );
     }
 
-    // 4. Check if Food Pass has ALREADY been claimed/received
-    if (whitelistRecord.foodReceived) {
-      return NextResponse.json({
-        status: 'ALREADY_RECEIVED',
-        message: 'Food Already Received',
-        error: 'Meal has already been claimed for this Food Pass.',
-        participant: {
-          fullName: whitelistRecord.fullName,
-          email: whitelistRecord.email,
-          teamName: whitelistRecord.teamName,
-          collegeName: whitelistRecord.collegeName,
-          participantId: whitelistRecord.participantId || '—',
-          foodPassId: whitelistRecord.foodPassId,
-          foodReceived: true,
+    // 5. Check if Food Pass has ALREADY been claimed/received
+    const isAlreadyReceived = whitelistRecord?.foodReceived || participantRecord?.foodReceived;
+    if (isAlreadyReceived) {
+      return NextResponse.json(
+        {
+          status: 'ALREADY_RECEIVED',
+          message: 'Food Already Received',
+          error: 'Meal has already been claimed for this Food Pass.',
+          participant: {
+            fullName,
+            email,
+            teamName,
+            collegeName,
+            participantId,
+            foodPassId: normalizedPassId,
+            foodReceived: true,
+          },
         },
-      });
+        { headers: NO_CACHE_HEADERS }
+      );
     }
 
-    // 5. Mark foodReceived = TRUE and record timestamp in Whitelist database
+    // 6. Mark foodReceived = TRUE and record timestamp synchronously in BOTH tables
     const now = new Date();
-    const updatedRecord = await prisma.whitelistParticipant.update({
-      where: { id: whitelistRecord.id },
-      data: { foodReceived: true, foodReceivedAt: now },
-    });
-
-    savePersistedParticipant(updatedRecord);
-
-    // 6. Also mark foodReceived = TRUE in Participant table if claimed
-    if (whitelistRecord.participantId) {
-      await prisma.participant.updateMany({
-        where: { participantId: whitelistRecord.participantId },
+    if (whitelistRecord) {
+      await prisma.whitelistParticipant.update({
+        where: { id: whitelistRecord.id },
         data: { foodReceived: true, foodReceivedAt: now },
       });
     }
 
-    return NextResponse.json({
-      status: 'SUCCESS',
-      message: 'Food Pass Verified',
-      participant: {
-        fullName: whitelistRecord.fullName,
-        email: whitelistRecord.email,
-        teamName: whitelistRecord.teamName,
-        collegeName: whitelistRecord.collegeName,
-        participantId: whitelistRecord.participantId || '—',
-        foodPassId: whitelistRecord.foodPassId,
-        foodReceived: true,
+    if (participantRecord) {
+      await prisma.participant.update({
+        where: { id: participantRecord.id },
+        data: { foodReceived: true, foodReceivedAt: now },
+      });
+    }
+
+    if (participantId && participantId !== '—') {
+      await prisma.whitelistParticipant.updateMany({
+        where: { participantId },
+        data: { foodReceived: true, foodReceivedAt: now },
+      });
+      await prisma.participant.updateMany({
+        where: { participantId },
+        data: { foodReceived: true, foodReceivedAt: now },
+      });
+    }
+
+    return NextResponse.json(
+      {
+        status: 'SUCCESS',
+        message: 'Food Pass Verified',
+        participant: {
+          fullName,
+          email,
+          teamName,
+          collegeName,
+          participantId,
+          foodPassId: normalizedPassId,
+          foodReceived: true,
+        },
       },
-    });
+      { headers: NO_CACHE_HEADERS }
+    );
   } catch (error: any) {
     console.error('Food verification error:', error);
     return NextResponse.json(
       { status: 'ERROR', error: error?.message || 'Failed to verify Food Pass.' },
-      { status: 500 }
+      { status: 500, headers: NO_CACHE_HEADERS }
     );
   }
 }

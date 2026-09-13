@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import { isAdminAuthenticated } from '@/lib/auth';
-import {
-  syncPersistentWhitelist,
-  savePersistedParticipant,
-} from '@/lib/persistentStore';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -24,9 +20,6 @@ export async function GET(req: NextRequest) {
         { status: 401, headers: NO_CACHE_HEADERS }
       );
     }
-
-    // Auto-sync persistent store to database before querying
-    await syncPersistentWhitelist(prisma);
 
     const { searchParams } = new URL(req.url);
     const query = searchParams.get('q')?.trim() || '';
@@ -87,9 +80,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Auto-sync before creating
-    await syncPersistentWhitelist(prisma);
-
     const body = await req.json();
 
     // Bulk Import (Array)
@@ -98,26 +88,37 @@ export async function POST(req: NextRequest) {
       let createdCount = 0;
       let skippedCount = 0;
 
+      const seenEmails = new Set<string>();
+
       for (const item of items) {
         if (!item.email || !item.email.trim()) continue;
 
         const mail = item.email.trim().toLowerCase();
+        if (seenEmails.has(mail)) {
+          skippedCount++;
+          continue;
+        }
+        seenEmails.add(mail);
+
         const name = (item.fullName || 'Selected Participant').trim();
         const college = (item.collegeName || 'CMP College').trim();
         const team = (item.teamName || 'Team Hack').trim();
         const accessCode = item.accessCode && item.accessCode.trim() ? item.accessCode.trim().toUpperCase() : null;
 
-        // Check duplicate by primary email identifier
-        const existing = await prisma.whitelistParticipant.findFirst({
+        // Check duplicate by primary email identifier across both Whitelist and Participant tables
+        const existingWhitelist = await prisma.whitelistParticipant.findFirst({
+          where: { email: mail },
+        });
+        const existingParticipant = await prisma.participant.findFirst({
           where: { email: mail },
         });
 
-        if (existing) {
+        if (existingWhitelist || existingParticipant) {
           skippedCount++;
           continue;
         }
 
-        const created = await prisma.whitelistParticipant.create({
+        await prisma.whitelistParticipant.create({
           data: {
             email: mail,
             fullName: name,
@@ -128,8 +129,6 @@ export async function POST(req: NextRequest) {
           },
         });
 
-        // Persist to store file
-        savePersistedParticipant(created);
         createdCount++;
       }
 
@@ -160,14 +159,17 @@ export async function POST(req: NextRequest) {
     const team = (teamName || 'Team Hack').trim();
     const code = accessCode && accessCode.trim() ? accessCode.trim().toUpperCase() : null;
 
-    // Primary Email Uniqueness Check
-    const existing = await prisma.whitelistParticipant.findFirst({
+    // Primary Email Uniqueness Check across both Whitelist and Participant tables
+    const existingWhitelist = await prisma.whitelistParticipant.findFirst({
+      where: { email: mail },
+    });
+    const existingParticipant = await prisma.participant.findFirst({
       where: { email: mail },
     });
 
-    if (existing) {
+    if (existingWhitelist || existingParticipant) {
       return NextResponse.json(
-        { error: 'Participant with this email is already whitelisted.' },
+        { error: 'Participant with this email is already whitelisted or registered.' },
         { status: 400, headers: NO_CACHE_HEADERS }
       );
     }
@@ -183,9 +185,6 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Save permanently to persistent store
-    savePersistedParticipant(created);
-
     return NextResponse.json(
       { success: true, participant: created },
       { headers: NO_CACHE_HEADERS }
@@ -198,3 +197,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+

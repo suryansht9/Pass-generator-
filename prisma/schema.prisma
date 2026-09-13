@@ -13,6 +13,7 @@ model Participant {
   fullName            String
   collegeName         String
   teamName            String
+  email               String?   @unique
   photoUrl            String
   verificationToken   String    @unique
   status              String    @default("ACTIVE") // ACTIVE, REVOKED
@@ -28,6 +29,7 @@ model Participant {
 
   @@index([participantId])
   @@index([status])
+  @@index([email])
 }
 
 model AccessCode {
