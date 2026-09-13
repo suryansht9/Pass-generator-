@@ -2,8 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
 import { existsSync } from 'fs';
+import { createClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
+
+function getSupabaseClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+
+  if (url && key) {
+    return createClient(url, key);
+  }
+  return null;
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -33,19 +44,52 @@ export async function POST(req: NextRequest) {
 
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
+    const ext = file.name.split('.').pop() || 'jpg';
+    const filename = `photo_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`;
 
-    // On Vercel or read-only production serverless environments, convert to optimized Data URL
-    if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
-      const mimeType = file.type || 'image/png';
-      const base64Image = buffer.toString('base64');
-      const photoUrl = `data:${mimeType};base64,${base64Image}`;
-      return NextResponse.json({ success: true, photoUrl });
+    // 1. Try Supabase Storage first if credentials exist
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      try {
+        const bucketName = 'participant-photos';
+
+        let { data, error } = await supabase.storage
+          .from(bucketName)
+          .upload(filename, buffer, {
+            contentType: file.type || 'image/jpeg',
+            upsert: true,
+          });
+
+        if (error && error.message.includes('Bucket not found')) {
+          await supabase.storage.createBucket(bucketName, { public: true });
+          const retry = await supabase.storage
+            .from(bucketName)
+            .upload(filename, buffer, {
+              contentType: file.type || 'image/jpeg',
+              upsert: true,
+            });
+          data = retry.data;
+          error = retry.error;
+        }
+
+        if (!error && data) {
+          const { data: publicUrlData } = supabase.storage
+            .from(bucketName)
+            .getPublicUrl(filename);
+
+          if (publicUrlData?.publicUrl) {
+            return NextResponse.json({ success: true, photoUrl: publicUrlData.publicUrl });
+          }
+        } else {
+          console.warn('Supabase storage upload fell back:', error?.message);
+        }
+      } catch (storageErr) {
+        console.warn('Supabase storage upload error:', storageErr);
+      }
     }
 
-    // Local filesystem storage for development
+    // 2. Local filesystem storage for development
     try {
-      const ext = file.name.split('.').pop() || 'png';
-      const filename = `photo_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`;
       const uploadDir = path.join(process.cwd(), 'public', 'uploads');
       if (!existsSync(uploadDir)) {
         await mkdir(uploadDir, { recursive: true });
@@ -54,8 +98,8 @@ export async function POST(req: NextRequest) {
       await writeFile(filePath, buffer);
       return NextResponse.json({ success: true, photoUrl: `/uploads/${filename}` });
     } catch (fsErr) {
-      // Fallback to base64 Data URL if local disk write fails
-      const mimeType = file.type || 'image/png';
+      // 3. Fallback to optimized base64 Data URL if local disk write fails
+      const mimeType = file.type || 'image/jpeg';
       const base64Image = buffer.toString('base64');
       return NextResponse.json({ success: true, photoUrl: `data:${mimeType};base64,${base64Image}` });
     }
