@@ -16,6 +16,11 @@ import {
   X,
   Utensils,
   Search,
+  Lock,
+  ShieldCheck,
+  Loader2,
+  ArrowRight,
+  AlertCircle,
 } from 'lucide-react';
 
 interface ScanResult {
@@ -47,6 +52,12 @@ interface FoodResult {
 }
 
 export default function OrganizerScannerPage() {
+  // Scanner Access Authentication State
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(false);
+
   // Main Pass QR Scanner State
   const [isScanning, setIsScanning] = useState(false);
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
@@ -61,6 +72,55 @@ export default function OrganizerScannerPage() {
 
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
   const scannerContainerId = 'qr-reader-container';
+
+  // Check scanner authentication on mount
+  useEffect(() => {
+    async function checkAuth() {
+      try {
+        const res = await fetch('/api/scanner/auth');
+        const data = await res.json();
+        setIsAuthenticated(!!data.authenticated);
+      } catch (err) {
+        setIsAuthenticated(false);
+      }
+    }
+    checkAuth();
+  }, []);
+
+  // Handle password submit for scanner access
+  const handleAuthSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+
+    if (!passwordInput) {
+      setAuthError('Please enter the password.');
+      return;
+    }
+
+    try {
+      setIsAuthLoading(true);
+      const res = await fetch('/api/scanner/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: passwordInput }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setAuthError(data.error || 'Incorrect password. Access denied.');
+        setIsAuthenticated(false);
+        return;
+      }
+
+      setIsAuthenticated(true);
+    } catch (err: any) {
+      setAuthError('Authentication failed. Server error.');
+      setIsAuthenticated(false);
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
 
   // Initialize and start scanner for Main Pass QR
   const startCamera = async () => {
@@ -189,13 +249,85 @@ export default function OrganizerScannerPage() {
   };
 
   useEffect(() => {
-    // Auto-start camera when page loads
-    startCamera();
+    if (isAuthenticated === true) {
+      startCamera();
+    }
 
     return () => {
       stopCamera();
     };
-  }, []);
+  }, [isAuthenticated]);
+
+  if (isAuthenticated === null) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center p-4">
+        <Loader2 className="w-8 h-8 text-brand-red animate-spin mb-3" />
+        <p className="text-xs font-mono text-gray-400">Verifying scanner access permissions...</p>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="py-16 px-4 sm:px-6 max-w-md mx-auto">
+        <div className="bg-brand-card border border-brand-border rounded-2xl p-6 sm:p-8 shadow-2xl space-y-6">
+          <div className="text-center space-y-2">
+            <div className="w-12 h-12 rounded-xl bg-brand-red/10 border border-brand-red/30 flex items-center justify-center mx-auto text-red-400">
+              <ShieldCheck className="w-6 h-6" />
+            </div>
+            <h1 className="font-display font-black text-2xl text-white">Verify &amp; Scan Access Control</h1>
+            <p className="text-xs text-brand-muted">
+              Enter volunteer password to access the entry check-in and food pass scanner.
+            </p>
+          </div>
+
+          {authError && (
+            <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2 font-mono">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 text-rose-400" />
+              <span>{authError}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleAuthSubmit} className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-mono font-semibold text-gray-300 uppercase tracking-wider">
+                Scanner Access Password
+              </label>
+              <div className="relative flex items-center">
+                <input
+                  type="password"
+                  required
+                  placeholder="Enter password..."
+                  value={passwordInput}
+                  onChange={(e) => setPasswordInput(e.target.value)}
+                  className="w-full pl-4 pr-10 py-3 bg-brand-dark border border-brand-border rounded-xl text-sm text-white placeholder-gray-500 focus:outline-none focus:border-brand-red font-mono"
+                />
+                <Lock className="w-4 h-4 text-gray-500 absolute right-3" />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isAuthLoading}
+              className="w-full py-3.5 bg-gradient-to-r from-brand-red to-red-600 hover:from-red-600 hover:to-red-700 text-white font-mono font-bold text-xs tracking-wider rounded-xl transition-all shadow-lg shadow-brand-red/20 flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {isAuthLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Verifying Password...</span>
+                </>
+              ) : (
+                <>
+                  <span>UNLOCK SCANNER</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="py-8 px-4 sm:px-6 max-w-lg mx-auto space-y-8">
